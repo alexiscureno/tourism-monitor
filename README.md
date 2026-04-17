@@ -1,0 +1,1 @@
+# Tourism Monitor · Cozumel

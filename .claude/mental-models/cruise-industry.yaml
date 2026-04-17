@@ -1,0 +1,211 @@
+domain: cruise-industry
+version: "1.0"
+updated: "2026-04-17"
+description: >
+  Conocimiento del dominio de la industria de cruceros relevante para
+  el análisis de afluencia turística en Cozumel, México.
+
+# ─── TERMINOLOGÍA CLAVE ────────────────────────────────────────────────
+terminology:
+  double_occupancy:
+    definition: >
+      Métrica estándar de la industria que asume 2 pasajeros por camarote.
+      Es el denominador estándar para calcular load factor.
+      Siempre es menor que la capacidad máxima del barco.
+    example: "MSC World America: double_occupancy=5240, max=6774"
+
+  load_factor:
+    definition: >
+      Porcentaje de ocupación de un barco = (pasajeros_reales / capacidad_double_occupancy) × 100.
+      Puede superar 100% cuando viajan más de 2 personas por camarote.
+      Valores típicos: 95%–115% en temporada alta, 75%–90% en temporada baja.
+    formula: "(pasajeros / capacidad_double) * 100"
+
+  fondeo:
+    definition: >
+      Cuando un barco ancla en el mar en lugar de atracar en un muelle.
+      En Cozumel, "FONDEO COZUMEL" es una terminal especial para barcos que no caben
+      en los muelles o que llegan fuera de horario. Los pasajeros llegan a tierra en lanchas (tenders).
+    implication: "Fondeo = menor experiencia para el pasajero, menos gasto en tierra"
+
+  homeport:
+    definition: >
+      Puerto base desde donde zarpa un crucero al inicio de su itinerario.
+      Los principales homeports que conectan con Cozumel son puertos del Golfo de México
+      y costa este de EE.UU.
+
+  turnaround_port:
+    definition: >
+      Puerto donde los pasajeros suben y bajan al inicio/fin del crucero.
+      Diferente de port_of_call (puerto de escala como Cozumel).
+
+  port_of_call:
+    definition: >
+      Puerto de escala — el barco llega por el día, los pasajeros hacen excursiones
+      y el barco zarpa el mismo día. Cozumel es un port_of_call, no un turnaround port.
+    implication: >
+      IMPORTANTE: Los cruceristas en Cozumel son visitantes del día (day visitors),
+      NO huéspedes de hotel. El mercado de cruceros y el mercado hotelero son INDEPENDIENTES.
+
+# ─── NAVIERAS Y GRUPOS CORPORATIVOS ────────────────────────────────────
+cruise_lines:
+  carnival_corporation:
+    brands:
+      - Carnival Cruise Line
+      - Princess Cruises
+      - Holland America Line
+      - Seabourn
+      - Costa Cruises
+      - AIDA Cruises
+      - P&O Cruises
+    market_share_cozumel: "~45% (dominante)"
+    homeports_cozumel: [Miami, Galveston, Tampa, New Orleans, Port Canaveral]
+
+  royal_caribbean_group:
+    brands:
+      - Royal Caribbean International
+      - Celebrity Cruises
+      - Silversea Cruises
+    market_share_cozumel: "~35%"
+    homeports_cozumel: [Miami, Fort Lauderdale, Port Canaveral, Galveston]
+    notes: "Operan los barcos más grandes (Allure, Wonder, Icon, Star of the Seas)"
+
+  msc_group:
+    brands:
+      - MSC Cruises
+    market_share_cozumel: "~10%"
+    homeports_cozumel: [Miami, Port Canaveral]
+    notes: "Flota más nueva en promedio, World Class es la clase más grande"
+
+  norwegian_cruise_line_holdings:
+    brands:
+      - Norwegian Cruise Line (NCL)
+      - Oceania Cruises
+      - Regent Seven Seas
+    market_share_cozumel: "~8%"
+    homeports_cozumel: [Miami, Tampa, New Orleans]
+
+  others:
+    brands:
+      - Disney Cruise Line
+      - Virgin Voyages
+      - Margaritaville at Sea
+      - Windstar
+    market_share_cozumel: "~2%"
+
+# ─── ESTACIONALIDAD ────────────────────────────────────────────────────
+seasonality:
+  high_season:
+    months: [10, 11, 12, 1, 2, 3, 4]  # Octubre–Abril
+    description: >
+      Temporada alta de cruceros en el Caribe. Clima favorable (sin huracanes),
+      vacaciones de invierno en EE.UU. y Europa.
+    typical_ships_per_day: "4–8"
+    typical_passengers_per_day: "15,000–30,000"
+
+  low_season:
+    months: [5, 6, 7, 8, 9]  # Mayo–Septiembre
+    description: >
+      Temporada baja. Clima cálido + temporada de huracanes (Jun–Nov peak).
+      Los cruceros reducen itinerarios del Caribe.
+    typical_ships_per_day: "1–3"
+    typical_passengers_per_day: "3,000–10,000"
+
+  hurricane_season:
+    peak_months: [8, 9, 10]  # Agosto–Octubre
+    risk_level: "Alto para Cozumel/Quintana Roo"
+    historical_impact: >
+      Huracanes categoría 3+ pueden causar cancelaciones masivas de 1–2 semanas.
+      Wilma (2005) destruyó parcialmente infraestructura portuaria.
+
+  holidays_peak:
+    periods:
+      - name: "Navidad/Año Nuevo"
+        months: [12, 1]
+        note: "Semana Santa (marzo/abril) también es peak en años específicos"
+      - name: "Spring Break EE.UU."
+        months: [3, 4]
+        note: "Incremento significativo en cruceristas jóvenes"
+
+# ─── ANOMALÍAS HISTÓRICAS CONOCIDAS ────────────────────────────────────
+known_anomalies:
+  covid_19:
+    period: "2020-03 to 2021-03"
+    description: >
+      Pandemia COVID-19. Cierre total de operaciones de cruceros.
+      Royal Caribbean, Carnival y otras navieras suspendieron toda actividad.
+      El primer crucero post-COVID llegó a Cozumel en junio 2021.
+    data_treatment: >
+      EXCLUIR de modelos de forecasting y análisis de estacionalidad.
+      Marcar como anomalía en visualizaciones. No imputar — dejar como gap.
+
+  covid_recovery:
+    period: "2021-04 to 2022-06"
+    description: >
+      Recuperación gradual. Capacidad reducida (50%–75%) por protocolos sanitarios.
+      Datos válidos pero no representativos de operación normal.
+    data_treatment: "Incluir con anotación de 'recuperación post-COVID'"
+
+  hurricane_wilma:
+    date: "2005-10"
+    note: "Fuera del rango de datos disponibles (2015+)"
+
+# ─── MÉTRICAS CLAVE DEL NEGOCIO ────────────────────────────────────────
+key_metrics:
+  gasto_promedio_crucerista:
+    value: "USD $100–$150 por día en destino"
+    source: "FCCA (Florida-Caribbean Cruise Association) estimates"
+    note: "Menor que turista de estadía (~$200–$300/día). Impacto económico significativo por volumen."
+
+  gasto_total_anual_estimado:
+    calculation: "pasajeros_anuales × $125 promedio"
+    note: "Cozumel recibe ~4–5M cruceristas/año en temporada normal"
+
+  tiempo_en_puerto:
+    typical: "8–12 horas (ETA 06:00–09:00, ETD 16:00–21:00)"
+    max: "hasta 15 horas para barcos grandes"
+
+# ─── TERMINALES DE COZUMEL ─────────────────────────────────────────────
+cozumel_terminals:
+  terminal_ssa_mexico:
+    full_name: "Terminal SSA México"
+    operator: "SSA México (Stevedoring Services of America)"
+    coordinates: {lat: 20.5072, lng: -86.9571}
+    capacity: "Barcos grandes (Royal Caribbean, MSC, Norwegian)"
+    notes: "La terminal más grande del puerto"
+
+  terminal_puerta_maya:
+    full_name: "Terminal Puerta Maya"
+    operator: "Carnival Corporation"
+    coordinates: {lat: 20.5030, lng: -86.9578}
+    capacity: "Principalmente Carnival y Princess"
+    notes: "Terminal exclusiva de facto para Carnival Corporation"
+
+  terminal_punta_langosta:
+    full_name: "Terminal Punta Langosta"
+    operator: "Punta Langosta S.A."
+    coordinates: {lat: 20.5089, lng: -86.9527}
+    capacity: "Barcos medianos, cruceros de lujo"
+    notes: "En el centro de San Miguel, más acceso a la ciudad"
+
+  fondeo_cozumel:
+    full_name: "Fondeo Cozumel"
+    operator: "Puerto de Cozumel"
+    coordinates: {lat: 20.5100, lng: -86.9400}
+    capacity: "Variable — barcos que anclan en bahía"
+    notes: "Los pasajeros llegan a tierra en tender boats"
+
+# ─── PREFIJOS DE NOMBRES DE BARCOS ─────────────────────────────────────
+ship_name_prefixes:
+  to_normalize:
+    - "M/S"    # Motonave/Motor Ship
+    - "M/V"    # Motor Vessel
+    - "M.S."   # Motor Ship
+    - "M.V."   # Motor Vessel
+    - "MS "    # Motor Ship (sin slash)
+    - "MV "    # Motor Vessel (sin slash)
+    - "SS "    # Steam Ship
+    - "S/S"    # Steam Ship
+  note: >
+    APIQROO usa prefijos inconsistentes. Siempre normalizar a nombre limpio
+    para JOIN con tabla maestra. Ejemplo: "M/V MSC WORLD AMERICA" → "MSC WORLD AMERICA"

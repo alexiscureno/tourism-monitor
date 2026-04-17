@@ -1,0 +1,54 @@
+# Environment
+.env
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.pyc
+
+# Data (raw CSV files and processed data — too large for git)
+data/raw/*.csv
+data/processed/
+data/logs/
+
+# Playwright
+.playwright/
+playwright-report/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# UV
+.uv/
+uv.lock
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Pipeline state (local only)
+data/pipeline_state.json

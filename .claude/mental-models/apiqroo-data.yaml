@@ -1,0 +1,202 @@
+domain: apiqroo-data
+version: "1.0"
+updated: "2026-04-17"
+description: >
+  Conocimiento técnico sobre la fuente de datos APIQROO
+  (Administración Portuaria Integral de Quintana Roo) y su dataset de cruceros.
+
+# ─── FUENTE DE DATOS ───────────────────────────────────────────────────
+source:
+  name: "APIQROO — Calendario de Cruceros para Cozumel"
+  url: "https://servicios.apiqroo.com.mx/programacion/"
+  authority: "Gobierno del Estado de Quintana Roo / SCT"
+  credibility: "Fuente oficial — datos del puerto mismo"
+  tabs:
+    programacion:
+      description: "Cruceros de la semana actual y próxima"
+      update_frequency: "En tiempo real durante el día"
+      has_passengers: false
+      use_case: "Status del día (amarillo→verde al arribar)"
+    historico:
+      description: "Historial por año/mes con filtros"
+      update_frequency: "Semanal — lunes o martes con datos de semana anterior"
+      has_passengers: true
+      use_case: "Datos definitivos con pasajeros reportados"
+
+# ─── ESTRUCTURA DEL DATASET ────────────────────────────────────────────
+dataset:
+  coverage:
+    start: "2015-10-01"
+    end: "presente (con rezago semanal en pasajeros)"
+    historical_records: 10307  # al 2026-04-17
+    new_records_per_month: ~300
+
+  columns:
+    fecha_dia:
+      raw_format: '"Thursday, 01 de october de 2015"'
+      parsed_as: "dia_semana + fecha"
+      notes: "Formato inconsistente con inglés/español mezclado"
+
+    puerto:
+      values:
+        - "TERMINAL SSA MEXICO"
+        - "TERMINAL PUERTA MAYA"
+        - "TERMINAL PUNTA LANGOSTA"
+        - "FONDEO COZUMEL"
+      notes: "Valores estables — no cambian"
+
+    bandera:
+      format: '"- PAÍS"'
+      examples:
+        - "- ESTADOS UNIDOS"
+        - "- SUIZA"          # MSC Cruises usa bandera suiza
+        - "- BAHAMAS"        # Margaritaville at Sea
+        - "- PANAMÁ"         # Varios operadores
+        - "- MALTA"          # MSC Cruises también malta
+      notes: "No es la naviera — es el país de registro del barco"
+
+    crucero:
+      format: "Prefijo + NOMBRE EN MAYÚSCULAS"
+      prefixes: ["M/S", "M/V", "M.S.", "M.V.", "MS ", "MV "]
+      normalization_required: true
+      examples:
+        - raw: "M/V MSC WORLD AMERICA"
+          normalized: "MSC WORLD AMERICA"
+        - raw: "M/S OASIS OF THE SEAS"
+          normalized: "OASIS OF THE SEAS"
+
+    fecha:
+      format: "D/M/YYYY"  # día/mes/año sin ceros a la izquierda
+      examples: ["1/10/2015", "15/4/2026"]
+      pandas_format: "%d/%m/%Y"
+      notes: "IMPORTANTE: usar errors='coerce' al parsear"
+
+    eta:
+      format: "HH:MM"
+      notes: "Hora local de Cozumel (CST = UTC-6)"
+
+    etd:
+      format: "HH:MM"
+      notes: "Hora estimada de zarpe"
+
+    status:
+      values:
+        Arribado:
+          color: "verde"
+          meaning: "El barco llegó y atracó"
+          passengers: "reportados en histórico con rezago semanal"
+        Programado:
+          color: "amarillo"
+          meaning: "Programado pero aún no llega"
+          passengers: "0 (no ha llegado)"
+        Cancelado:
+          color: "rojo"
+          meaning: "La visita fue cancelada"
+          passengers: "0 (nunca llegó)"
+
+    pasajeros:
+      raw_format: "string con coma como separador de miles"
+      examples: ['"6,079"', '"3,242"', '"0"']
+      parsed_as: "integer"
+      parsing: "remove commas → int()"
+      gotcha: >
+        IMPORTANTE: pasajeros=0 puede significar DOS cosas diferentes:
+        1. status='Cancelado' → legítimamente 0, nunca llegó
+        2. status='Arribado' → dato pendiente de carga semanal
+        Usar campo 'pasajeros_pendiente' para distinguirlos.
+
+# ─── QUIRKS Y GOTCHAS ──────────────────────────────────────────────────
+quirks:
+  weekly_lag:
+    description: >
+      Los pasajeros de la semana en curso (lunes–domingo) aparecen como 0
+      hasta que APIQROO los carga, típicamente el lunes o martes siguiente.
+    implication: >
+      Al consultar datos de la semana actual en el tab Histórico,
+      los registros con status='Arribado' y pasajeros=0 son datos pendientes,
+      NO cancelados. Marcarlos como 'pasajeros_pendiente=True'.
+
+  duplicate_prevention:
+    unique_constraint: "(fecha, terminal, crucero_norm)"
+    notes: >
+      El scraper puede obtener el mismo registro múltiples veces
+      (ej. al actualizar status). Usar ON CONFLICT DO UPDATE en Supabase.
+
+  month_boundary:
+    description: >
+      Al scrapear con filtros año/mes, el primer y último día del mes
+      pueden aparecer en dos consultas consecutivas (overlap).
+    solution: "Siempre usar upsert, nunca insert plain"
+
+  name_variations:
+    description: >
+      El mismo barco puede aparecer con nombres ligeramente diferentes:
+      "CARNIVAL LEGEND" vs "M/V CARNIVAL LEGEND" vs "M.V. CARNIVAL LEGEND"
+    solution: "Normalizar siempre antes de JOIN con ships_master"
+
+  spanish_english_mix:
+    description: >
+      La columna fecha_dia mezcla inglés y español:
+      "Thursday, 01 de october de 2015"
+      "Wednesday, 15 de abril de 2026"
+    notes: "Los meses a veces están en inglés, a veces en español"
+
+  fondeo_zero_passengers:
+    description: >
+      Algunos registros de FONDEO COZUMEL tienen pasajeros=0 aunque status='Arribado'.
+      Esto puede ser legítimo (fondeo sin tender service) o dato pendiente.
+    treatment: "Tratar igual que otros Arribado+0: marcar como pendiente"
+
+# ─── ESTRATEGIA DE SCRAPING ────────────────────────────────────────────
+scraping:
+  tool: "Playwright async"
+  reason: "La página requiere JavaScript para los selects dinámicos año/mes"
+
+  daily_update:
+    tab: "Programación"
+    frequency: "Diario ~7am CST"
+    what_changes: "Status de barcos del día (programado → arribado)"
+    no_passengers: true
+    approach: "Scrape mes actual, upsert por constraint único"
+
+  weekly_update:
+    tab: "Histórico"
+    frequency: "Lunes ~6am CST"
+    what_changes: "Pasajeros de la semana anterior (lunes–domingo previo)"
+    approach: "Seleccionar año/mes de semana anterior, upsert con pasajeros"
+
+  historical_backfill:
+    years: "2015–presente"
+    approach: "Iterar año por año, mes por mes, con delays de 1s entre requests"
+    estimated_time: "20–30 minutos para el rango completo"
+
+  selectors:
+    year_select: "select#anio"
+    month_select: "select#mes"
+    status_select: "select#status"
+    query_button: 'button:has-text("Consultar")'
+    historico_tab: 'text=Histórico'
+    table_rows: "table tbody tr"
+    date_header: "td[colspan]"  # filas de fecha agrupadora
+    status_green: "circle_green"
+    status_yellow: "circle_yellow"
+    status_red: "circle_red"
+
+# ─── DATOS DE REFERENCIA ───────────────────────────────────────────────
+reference:
+  historical_records_by_year:
+    "2015": ~160   # solo oct–dic
+    "2016": ~800
+    "2017": ~820
+    "2018": ~850
+    "2019": ~870   # peak pre-COVID
+    "2020": ~200   # COVID — cierre marzo
+    "2021": ~400   # recuperación parcial
+    "2022": ~750
+    "2023": ~850
+    "2024": ~880
+    "2025": ~450   # solo hasta mayo en dataset actual
+
+  cancellation_rate_normal: "~2–3% anual"
+  cancellation_rate_hurricane_month: "~15–25%"
+  cancellation_rate_covid_2020: "~60%"

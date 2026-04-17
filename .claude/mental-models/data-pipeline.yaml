@@ -1,0 +1,202 @@
+domain: data-pipeline
+version: "1.0"
+updated: "2026-04-17"
+description: >
+  Arquitectura del pipeline de datos del tourism-monitor.
+  Define el flujo completo desde recolección hasta visualización,
+  incluyendo la orquestación simplificada inspirada en ADW.
+
+# ─── FLUJO PRINCIPAL ───────────────────────────────────────────────────
+pipeline_stages:
+  1_collect:
+    description: "Recolectar datos crudos de fuentes externas"
+    modules:
+      - "src/collectors/apiqroo.py"
+      - "src/collectors/cruisemapper.py"
+      - "src/collectors/weather.py"
+    output: "DataFrames con datos crudos sin transformar"
+    failure_mode: "Log + skip — nunca abortar pipeline por fallo de fuente"
+
+  2_validate:
+    description: "Validar calidad antes de procesar"
+    module: "src/pipeline/validator.py"
+    checks:
+      - "No duplicados en (fecha, terminal, crucero)"
+      - "Fechas en rango válido (2015-10-01 → hoy+30días)"
+      - "Status es uno de: Arribado, Cancelado, Programado"
+      - "pasajeros >= 0"
+      - "ETA y ETD son horas válidas"
+    on_failure: "Quarantine registro en tabla cruise_visits_quarantine"
+
+  3_process:
+    description: "Limpiar y normalizar datos"
+    module: "src/processors/cleaner.py"
+    transformations:
+      - "Parsear fecha de string D/M/YYYY → date"
+      - "Normalizar nombre de barco (quitar prefijos M/S M/V)"
+      - "Parsear pasajeros de string '6,079' → int 6079"
+      - "Detectar pasajeros_pendiente (Arribado + pasajeros=0)"
+      - "Extraer dia_semana de fecha_dia"
+
+  4_enrich:
+    description: "Cruzar datos con tabla maestra"
+    module: "src/processors/enricher.py"
+    joins:
+      - "cruise_visits.crucero_norm → ships_master.nombre"
+      - "cruise_visits.fecha → weather_daily.fecha"
+    derived_fields:
+      - "load_factor = (pasajeros / capacidad_double) * 100"
+      - "grupo_naviera (de ships_master)"
+      - "gross_tonnage (de ships_master)"
+
+  5_store:
+    description: "Persistir en Supabase con upsert"
+    module: "src/db/client.py"
+    strategy: "ON CONFLICT (fecha, terminal, crucero_norm) DO UPDATE"
+    tables:
+      - "cruise_visits"
+      - "ships_master"
+      - "weather_daily"
+
+  6_notify:
+    description: "Notificar resultado del pipeline"
+    module: "src/pipeline/notifier.py"
+    channels: ["log", "archivo de estado"]
+    payload:
+      - "registros procesados"
+      - "registros nuevos"
+      - "registros actualizados"
+      - "errores / quarantine"
+
+# ─── ORQUESTADOR ───────────────────────────────────────────────────────
+orchestrator:
+  file: "src/pipeline/orchestrator.py"
+  description: >
+    Orquestador simplificado inspirado en ADW (Agentic Developer Workflows).
+    Secuencia determinista de fases con estado persistente.
+
+  workflows:
+    daily_update:
+      description: "Actualiza status de barcos del día actual"
+      phases: [collect_programacion, validate, process, store, notify]
+      trigger: "GitHub Actions cron: 7am CST lunes–domingo"
+      estimated_duration: "2–3 minutos"
+
+    weekly_update:
+      description: "Actualiza pasajeros de la semana anterior"
+      phases: [collect_historico, validate, process, enrich, store, notify]
+      trigger: "GitHub Actions cron: 6am CST lunes"
+      estimated_duration: "5–10 minutos"
+
+    historical_backfill:
+      description: "Carga inicial de datos históricos 2015–presente"
+      phases: [collect_historico_range, validate, process, enrich, store, notify]
+      trigger: "Manual (script one-time)"
+      estimated_duration: "20–30 minutos"
+
+    ships_master_refresh:
+      description: "Actualiza tabla maestra de barcos desde CruiseMapper"
+      phases: [collect_ships, validate_ships, store_ships, notify]
+      trigger: "Manual (trimestral)"
+      estimated_duration: "7–10 minutos"
+
+  state:
+    file: "data/pipeline_state.json"
+    fields:
+      - "last_daily_update: timestamp"
+      - "last_weekly_update: timestamp"
+      - "last_historical_date: date"
+      - "total_records: int"
+      - "last_run_errors: list"
+
+# ─── HOOKS DE CALIDAD ──────────────────────────────────────────────────
+hooks:
+  pre_store:
+    file: ".claude/hooks/pre_store_validation.py"
+    description: "Validar DataFrame antes de insertar en Supabase"
+    checks:
+      - name: "no_future_dates_with_passengers"
+        rule: "Si fecha > hoy y pasajeros > 0 → ERROR"
+      - name: "no_negative_passengers"
+        rule: "pasajeros < 0 → ERROR"
+      - name: "valid_status_values"
+        rule: "status not in ['Arribado','Cancelado','Programado'] → ERROR"
+      - name: "valid_terminal_values"
+        rule: "terminal not in known_terminals → WARNING"
+      - name: "suspicious_load_factor"
+        rule: "load_factor > 130% → WARNING (posible error de capacidad)"
+
+  post_store:
+    file: ".claude/hooks/post_store_summary.py"
+    description: "Log resumen después de cada inserción"
+    output: "data/logs/pipeline_{date}.log"
+
+# ─── GITHUB ACTIONS ────────────────────────────────────────────────────
+github_actions:
+  daily_update:
+    file: ".github/workflows/daily_update.yml"
+    schedule: "0 13 * * *"  # 7am CST = 13:00 UTC
+    steps:
+      - "checkout repo"
+      - "setup python + uv"
+      - "install dependencies"
+      - "run scripts/update_daily.py"
+    secrets_required: ["SUPABASE_URL", "SUPABASE_KEY"]
+
+  weekly_update:
+    file: ".github/workflows/weekly_update.yml"
+    schedule: "0 12 * * 1"  # 6am CST lunes = 12:00 UTC
+    steps:
+      - "checkout repo"
+      - "setup python + uv"
+      - "install dependencies"
+      - "uv run playwright install chromium --with-deps"
+      - "run scripts/update_weekly.py"
+    secrets_required: ["SUPABASE_URL", "SUPABASE_KEY"]
+    estimated_runtime: "8–12 minutes"
+
+# ─── SUPABASE SCHEMA ───────────────────────────────────────────────────
+database:
+  connection: "SUPABASE_URL + SUPABASE_KEY desde .env"
+  tables:
+    cruise_visits:
+      primary_key: "id (UUID)"
+      unique_constraint: "(fecha, terminal, crucero_norm)"
+      indexes: ["fecha", "crucero_norm", "status", "terminal"]
+      upsert_strategy: "ON CONFLICT DO UPDATE SET pasajeros, status, updated_at"
+
+    ships_master:
+      primary_key: "id (UUID)"
+      unique_constraint: "nombre"
+      update_frequency: "trimestral (manual)"
+
+    weather_daily:
+      primary_key: "id (UUID)"
+      unique_constraint: "fecha"
+      backfill: "Oct 2015 → presente via Open-Meteo"
+
+    cruise_visits_quarantine:
+      description: "Registros que fallaron validación"
+      fields: ["raw_data (jsonb)", "error_reason", "created_at"]
+
+# ─── PATRONES CRÍTICOS ─────────────────────────────────────────────────
+critical_patterns:
+  always_upsert:
+    rule: "NUNCA usar INSERT plain — siempre ON CONFLICT DO UPDATE"
+    reason: "El mismo registro puede llegar múltiples veces (status updates)"
+
+  normalize_before_join:
+    rule: "Siempre normalizar crucero_norm antes de cualquier JOIN"
+    function: "src/processors/cleaner.normalize_ship_name()"
+
+  exclude_pending_from_metrics:
+    rule: "WHERE pasajeros_pendiente = FALSE cuando se calculan métricas de pasajeros"
+    reason: "Los pendientes (Arribado + pasajeros=0) distorsionan promedios"
+
+  exclude_cancelled_from_traffic:
+    rule: "WHERE status = 'Arribado' para métricas de afluencia"
+    reason: "Los cancelados no generaron impacto turístico"
+
+  covid_exclusion:
+    rule: "Para modelos de forecasting/estacionalidad: excluir 2020-03 a 2021-03"
+    reason: "Anomalía extrema que sesga los modelos"
