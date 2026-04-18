@@ -16,6 +16,7 @@ VALID_TERMINALS = {
     "TERMINAL PUERTA MAYA",
     "TERMINAL PUNTA LANGOSTA",
     "FONDEO COZUMEL",
+    "AL PAIRO",  # Fondeo histórico usado en registros anteriores
 }
 DATA_START = date(2015, 10, 1)
 MAX_LOAD_FACTOR_WARNING = 130.0

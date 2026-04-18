@@ -139,9 +139,6 @@ def _build_display_df(df_term: pd.DataFrame) -> pd.DataFrame:
         else:
             pax_display = "0"
 
-        load_f = row.get("load_factor")
-        lf_display = f"{load_f:.0f}%" if load_f is not None else "—"
-
         rows.append(
             {
                 "Barco": row.get(name_col, "—"),
@@ -150,7 +147,6 @@ def _build_display_df(df_term: pd.DataFrame) -> pd.DataFrame:
                 "ETD": str(row.get("etd", "—"))[:5],
                 "Status": f"{status_icon} {row.get('status', '—')}",
                 "Pasajeros": pax_display,
-                "Load Factor": lf_display,
             }
         )
 
@@ -170,7 +166,7 @@ for terminal in terminals_ordered:
     display_cols = _build_display_df(df_term)
     st.dataframe(
         display_cols,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
     st.markdown("")

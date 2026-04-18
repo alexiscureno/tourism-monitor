@@ -111,14 +111,19 @@ def clean(df: pd.DataFrame) -> pd.DataFrame:
 
     # ── STATUS ───────────────────────────────────────────────
     if "status" in result.columns:
-        result["status"] = result["status"].str.strip().str.capitalize()
+        result["status"] = result["status"].astype(str).str.strip().str.capitalize()
         # Map variaciones conocidas
         status_map = {
             "Arribado": "Arribado",
             "Cancelado": "Cancelado",
             "Programado": "Programado",
         }
-        result["status"] = result["status"].map(status_map).fillna(result["status"])
+        result["status"] = result["status"].map(status_map)
+        # Filas sin status válido → descartar con warning
+        nulls = result["status"].isna().sum()
+        if nulls > 0:
+            logger.warning(f"clean: {nulls} filas con status inválido/NaN — descartadas")
+            result = result.dropna(subset=["status"])
 
     logger.info(f"clean: {len(result)} registros después de limpieza")
     return result

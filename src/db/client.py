@@ -29,6 +29,13 @@ def get_client() -> Client:
 
 # ─── CRUISE VISITS ──────────────────────────────────────────────────────
 
+CRUISE_VISITS_COLUMNS = {
+    "fecha", "dia_semana", "terminal", "bandera", "crucero", "crucero_norm",
+    "eta", "etd", "status", "pasajeros", "pasajeros_pendiente",
+    "grupo_naviera", "gross_tonnage", "capacidad_double", "load_factor",
+}
+
+
 def upsert_cruise_visits(df: pd.DataFrame) -> tuple[int, int]:
     """
     Upsert registros en cruise_visits.
@@ -36,7 +43,9 @@ def upsert_cruise_visits(df: pd.DataFrame) -> tuple[int, int]:
     """
     client = get_client()
 
-    records = _df_to_records(df, table="cruise_visits")
+    # Solo incluir columnas que existen en la tabla
+    cols = [c for c in df.columns if c in CRUISE_VISITS_COLUMNS]
+    records = _df_to_records(df[cols], table="cruise_visits")
     if not records:
         return 0, 0
 
